@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -77,6 +78,9 @@ func healthzHandler(res http.ResponseWriter, req *http.Request) {
 	res.Write([]byte("OK"))
 
 }
+
+var FORBIDDEN_KEYWORDS = []string{"kerfuffle", "sharbert", "fornax"}
+
 func validationHandler(res http.ResponseWriter, req *http.Request) {
 	type params struct {
 		Body string `json:"body"`
@@ -88,26 +92,40 @@ func validationHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	json.Unmarshal(body, &param)
-	type returnvals struct {
-		Valid bool `json:"valid"`
-	}
-	type errorvals struct {
-		Error string `json:"error"`
-	}
-	if len(param.Body) > 140 {
-		res.WriteHeader(http.StatusBadRequest)
-		tooLongErr := errorvals{Error: "Chirp is too long"}
-		data, err := json.Marshal(tooLongErr)
-		if err != nil {
 
-			res.Write([]byte(err.Error()))
-		}
-		res.Write(data)
+	if len(param.Body) > 140 {
+		respondWithError(res, http.StatusBadRequest, "Chirp is too long")
 		return
 	}
+	current := param.Body
+	for _, fk := range FORBIDDEN_KEYWORDS {
+		if strings.Contains(strings.ToLower(current), fmt.Sprintf(" %v ", fk)) {
+			current = strings.Replace(current, fk, "****", -1)
+			current = strings.Replace(current, strings.Title(fk), "****", -1)
+		}
+	}
 	res.Header().Set("Content-Type", "application/json")
-	res.WriteHeader(200)
-	data, err := json.Marshal(returnvals{Valid: true})
-	res.Write(data)
+	type MyData struct {
+		Data string `json:"cleaned_body"`
+	}
+	respondWithJSON(res, 200, MyData{Data: current})
+
+}
+func respondWithError(w http.ResponseWriter, code int, msg string) {
+	w.WriteHeader(code)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		w.Write([]byte(err.Error()))
+	}
+	w.Write(data)
+}
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+
+	w.WriteHeader(code)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		respondWithError(w, 500, "error parsing payload")
+	}
+	w.Write(data)
 
 }
