@@ -1,0 +1,51 @@
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.trace
+.cov
+.coverage
+.vscode/
+.idea/
+*.iml
+_test
+_test.go
+
+
+database.json
+
+# OS-specific files
+.DS_Store
+
+# Compiled binary files
+*.com
+*.class
+*.o
+*.a
+*.lib
+*.so
+*.dylib
+
+# Log files
+*.log
+
+# Temporary files
+*~
+*.swp
+*.tmp
+
+# Environment-specific files
+.env
+.env.local
+.env.*.local
+.env.*
+
+
+# Dependency directories
+/vendor/
+/go.sum

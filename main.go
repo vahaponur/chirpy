@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"internal/db"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -14,6 +16,9 @@ type apiConfig struct {
 	fileServerHit int
 }
 
+var Db *db.DB
+var DbStructure *db.DBStructure
+
 func (cfg *apiConfig) incMetrics(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -23,6 +28,7 @@ func (cfg *apiConfig) incMetrics(next http.Handler) http.Handler {
 	})
 }
 func (cfg *apiConfig) metrics(w http.ResponseWriter, r *http.Request) {
+
 	w.Write([]byte(fmt.Sprintf(`<html>
 
 	<body>
@@ -33,13 +39,21 @@ func (cfg *apiConfig) metrics(w http.ResponseWriter, r *http.Request) {
 	</html>`, cfg.fileServerHit)))
 
 }
-
+func CreateDb() {
+	Dba, err := db.NewDB("./database.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	Db = Dba
+}
 func main() {
 	cfg := apiConfig{fileServerHit: 0}
-
+	CreateDb()
 	apiRooter := chi.NewRouter()
 	apiRooter.Get("/healthz", healthzHandler)
-	apiRooter.Post("/validate_chirp", validationHandler)
+	apiRooter.Post("/chirps", addChirp)
+	apiRooter.Get("/chirps", getChirps)
+	apiRooter.Get("/chirps/{id}", getChirpById)
 	adminRooter := chi.NewRouter()
 	adminRooter.Get("/metrics", cfg.metrics)
 	r := chi.NewRouter()
@@ -81,11 +95,9 @@ func healthzHandler(res http.ResponseWriter, req *http.Request) {
 
 var FORBIDDEN_KEYWORDS = []string{"kerfuffle", "sharbert", "fornax"}
 
-func validationHandler(res http.ResponseWriter, req *http.Request) {
-	type params struct {
-		Body string `json:"body"`
-	}
-	param := params{}
+func addChirp(res http.ResponseWriter, req *http.Request) {
+
+	param := Chirp{}
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		res.Write([]byte("Something went wrong"))
@@ -93,23 +105,63 @@ func validationHandler(res http.ResponseWriter, req *http.Request) {
 	}
 	json.Unmarshal(body, &param)
 
-	if len(param.Body) > 140 {
-		respondWithError(res, http.StatusBadRequest, "Chirp is too long")
+	validation := validateChirp(req, param)
+	if !validation.valid {
+		respondWithError(res, http.StatusBadRequest, validation.message)
 		return
 	}
-	current := param.Body
+	res.Header().Set("Content-Type", "application/json")
+	type MyData struct {
+		Data string `json:"cleaned_body"`
+	}
+	chirp, err := Db.CreateChirp(param.Body)
+	if err != nil {
+		respondWithError(res, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondWithJSON(res, 201, chirp)
+
+}
+func getChirps(res http.ResponseWriter, req *http.Request) {
+	chirps, err := Db.GetChirpValues()
+	if err != nil {
+		respondWithError(res, 400, err.Error())
+		return
+	}
+	respondWithJSON(res, 200, chirps)
+}
+func getChirpById(res http.ResponseWriter, req *http.Request) {
+	param := chi.URLParam(req, "id")
+	chirp, err := Db.GetChirpById(param)
+	if err != nil {
+		respondWithError(res, 404, err.Error())
+		return
+	}
+	respondWithJSON(res, 200, chirp)
+}
+
+type Validation struct {
+	valid   bool
+	message string
+}
+type Chirp struct {
+	Body string `json:"body"`
+}
+
+func validateChirp(req *http.Request, chirp Chirp) Validation {
+
+	if len(chirp.Body) > 140 {
+
+		return Validation{false, "Chirp is too long"}
+	}
+	current := chirp.Body
 	for _, fk := range FORBIDDEN_KEYWORDS {
 		if strings.Contains(strings.ToLower(current), fmt.Sprintf(" %v ", fk)) {
 			current = strings.Replace(current, fk, "****", -1)
 			current = strings.Replace(current, strings.Title(fk), "****", -1)
 		}
 	}
-	res.Header().Set("Content-Type", "application/json")
-	type MyData struct {
-		Data string `json:"cleaned_body"`
-	}
-	respondWithJSON(res, 200, MyData{Data: current})
-
+	return Validation{true, current}
 }
 func respondWithError(w http.ResponseWriter, code int, msg string) {
 	w.WriteHeader(code)
