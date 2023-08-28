@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // This is a file db, it just creates a json if it doesnt exist and writes given models on it,
@@ -15,12 +17,22 @@ type Chirp struct {
 	Body string `json:"body"`
 	Id   int    `json:"id"`
 }
+type User struct {
+	Email    string `json:"email"`
+	Id       int    `json:"id"`
+	Password string `json:"password"`
+}
+type UserView struct {
+	Email string `json:"email"`
+	Id    int    `json:"id"`
+}
 type DB struct {
 	path string
 	mu   *sync.RWMutex
 }
 type DBStructure struct {
 	Chirps map[int]Chirp
+	Users  map[int]User
 }
 
 func NewDB(path string) (*DB, error) {
@@ -49,6 +61,67 @@ func (db *DB) CreateChirp(body string) (Chirp, error) {
 		return chirp, err
 	}
 	return chirp, err
+
+}
+func validateEmail(email string, str DBStructure) bool {
+	users := str.Users
+	for _, val := range users {
+		if val.Email == email {
+			return false
+		}
+	}
+	return true
+}
+func (db *DB) CreateUser(email, password string) (UserView, error) {
+	db.ensureDB()
+	str, err := db.loadDB()
+	if err != nil {
+		return UserView{}, err
+	}
+	emailOk := validateEmail(email, str)
+	if !emailOk {
+		return UserView{}, errors.New("Email already registered")
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), 4)
+	user := User{Email: email, Password: string(hashed)}
+
+	nextId := len(str.Users) + 1
+	user.Id = nextId
+	str.Users[nextId] = user
+
+	err = db.writeDB(str)
+	if err != nil {
+
+		return UserView{}, err
+	}
+
+	return UserView{Email: user.Email, Id: user.Id}, nil
+
+}
+func (db *DB) GetUserByEmail(email string) (User, error) {
+	db.ensureDB()
+	str, err := db.loadDB()
+	if err != nil {
+		return User{}, err
+	}
+	for _, value := range str.Users {
+		if value.Email == email {
+			return value, nil
+		}
+	}
+	return User{}, errors.New("User not found")
+}
+func (db *DB) LoginUser(email, password string) (UserView, error) {
+	db.ensureDB()
+	user, err := db.GetUserByEmail(email)
+	if err != nil {
+		return UserView{}, err
+	}
+	compareErr := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
+	if compareErr != nil {
+		return UserView{}, errors.New("Login failed")
+	}
+	return UserView{Email: user.Email, Id: user.Id}, nil
 
 }
 
@@ -109,7 +182,7 @@ func (db *DB) ensureDB() error {
 func (db *DB) loadDB() (DBStructure, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
-	dbStructure := DBStructure{Chirps: map[int]Chirp{}}
+	dbStructure := DBStructure{Chirps: map[int]Chirp{}, Users: map[int]User{}}
 	file, err := os.ReadFile(db.path)
 	if err != nil {
 		return dbStructure, err

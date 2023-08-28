@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"internal/db"
-	"io"
+
 	"log"
 	"net/http"
-	"strings"
+	"os"
+	"os/signal"
+
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -46,14 +52,18 @@ func CreateDb() {
 	}
 	Db = Dba
 }
-func main() {
+
+var debugMode *bool
+
+func getMainRouter() *chi.Mux {
 	cfg := apiConfig{fileServerHit: 0}
-	CreateDb()
 	apiRooter := chi.NewRouter()
 	apiRooter.Get("/healthz", healthzHandler)
 	apiRooter.Post("/chirps", addChirp)
 	apiRooter.Get("/chirps", getChirps)
 	apiRooter.Get("/chirps/{id}", getChirpById)
+	apiRooter.Post("/users", addUser)
+	apiRooter.Post("/login", loginUser)
 	adminRooter := chi.NewRouter()
 	adminRooter.Get("/metrics", cfg.metrics)
 	r := chi.NewRouter()
@@ -63,15 +73,52 @@ func main() {
 	r.Mount("/api", apiRooter)
 	r.Mount("/admin", adminRooter)
 	r.Handle("/assets", http.FileServer(http.Dir("./assets")))
+	return r
+}
+func main() {
+	debugMode = flag.Bool("debug", false, "Enable debug mode")
 
+	defer cleanup()
+
+	CreateDb()
+
+	r := getMainRouter()
 	corsmux := middlewareCors(r)
 
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: corsmux,
 	}
-	server.ListenAndServe()
+	fmt.Println("Starting the server...")
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("Error: %s\n", err)
+		}
+	}()
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+	// Wait for signals
+	<-signalChan
+	fmt.Println("\nReceived interrupt signal. Shutting down gracefully...")
 
+	// Shutdown the server gracefully
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		fmt.Printf("Error during server shutdown: %s\n", err)
+	}
+
+}
+func cleanup() {
+	flag.Parse()
+	if !*debugMode {
+		return
+	}
+	err := os.Remove("./database.json")
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func middlewareCors(next http.Handler) http.Handler {
@@ -93,76 +140,6 @@ func healthzHandler(res http.ResponseWriter, req *http.Request) {
 
 }
 
-var FORBIDDEN_KEYWORDS = []string{"kerfuffle", "sharbert", "fornax"}
-
-func addChirp(res http.ResponseWriter, req *http.Request) {
-
-	param := Chirp{}
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		res.Write([]byte("Something went wrong"))
-		return
-	}
-	json.Unmarshal(body, &param)
-
-	validation := validateChirp(req, param)
-	if !validation.valid {
-		respondWithError(res, http.StatusBadRequest, validation.message)
-		return
-	}
-	res.Header().Set("Content-Type", "application/json")
-	type MyData struct {
-		Data string `json:"cleaned_body"`
-	}
-	chirp, err := Db.CreateChirp(param.Body)
-	if err != nil {
-		respondWithError(res, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondWithJSON(res, 201, chirp)
-
-}
-func getChirps(res http.ResponseWriter, req *http.Request) {
-	chirps, err := Db.GetChirpValues()
-	if err != nil {
-		respondWithError(res, 400, err.Error())
-		return
-	}
-	respondWithJSON(res, 200, chirps)
-}
-func getChirpById(res http.ResponseWriter, req *http.Request) {
-	param := chi.URLParam(req, "id")
-	chirp, err := Db.GetChirpById(param)
-	if err != nil {
-		respondWithError(res, 404, err.Error())
-		return
-	}
-	respondWithJSON(res, 200, chirp)
-}
-
-type Validation struct {
-	valid   bool
-	message string
-}
-type Chirp struct {
-	Body string `json:"body"`
-}
-
-func validateChirp(req *http.Request, chirp Chirp) Validation {
-
-	if len(chirp.Body) > 140 {
-
-		return Validation{false, "Chirp is too long"}
-	}
-	current := chirp.Body
-	for _, fk := range FORBIDDEN_KEYWORDS {
-		if strings.Contains(strings.ToLower(current), fmt.Sprintf(" %v ", fk)) {
-			current = strings.Replace(current, fk, "****", -1)
-			current = strings.Replace(current, strings.Title(fk), "****", -1)
-		}
-	}
-	return Validation{true, current}
-}
 func respondWithError(w http.ResponseWriter, code int, msg string) {
 	w.WriteHeader(code)
 	data, err := json.Marshal(msg)
