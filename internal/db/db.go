@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -15,16 +16,16 @@ import (
 // This is a file db, it just creates a json if it doesnt exist and writes given models on it,
 type Chirp struct {
 	Body string `json:"body"`
-	Id   int    `json:"id"`
+	Id   int    `json:"Id"`
 }
 type User struct {
 	Email    string `json:"email"`
-	Id       int    `json:"id"`
+	Id       int    `json:"Id"`
 	Password string `json:"password"`
 }
 type UserView struct {
 	Email string `json:"email"`
-	Id    int    `json:"id"`
+	Id    int    `json:"Id"`
 }
 type UserLogin struct {
 	User
@@ -35,8 +36,14 @@ type DB struct {
 	mu   *sync.RWMutex
 }
 type DBStructure struct {
-	Chirps map[int]Chirp
-	Users  map[int]User
+	Chirps       map[int]Chirp
+	Users        map[int]User
+	RefreshToken map[string]RefreshToken
+}
+type RefreshToken struct {
+	Id         string
+	Revoked    bool
+	RevokeTime time.Time
 }
 
 func NewDB(path string) (*DB, error) {
@@ -47,6 +54,21 @@ func NewDB(path string) (*DB, error) {
 	}
 
 	return &db, err
+}
+func (db *DB) CreateRefreshToken(refreshStr string, expiration time.Time) (RefreshToken, error) {
+	db.ensureDB()
+	str, err := db.loadDB()
+	refresh := RefreshToken{}
+	if err != nil {
+		return refresh, err
+	}
+	refresh.Id = refreshStr
+	refresh.Revoked = false
+	refresh.RevokeTime = expiration
+
+	str.RefreshToken[refreshStr] = refresh
+	db.writeDB(str)
+	return refresh, nil
 }
 
 // CreateChirp creates a new chirp and saves it to disk
@@ -115,21 +137,29 @@ func (db *DB) GetUserByEmail(email string) (*User, error) {
 	}
 	return &User{}, errors.New("User not found")
 }
-func (db *DB) UpdateUser(oldEmail string, newEmail string) (UserView, error) {
+func (db *DB) UpdateUser(old User, new User) (UserView, error) {
 	db.ensureDB()
 	str, err := db.loadDB()
 	if err != nil {
 		return UserView{}, err
 	}
-	emailOk := validateEmail(newEmail, str)
+	emailOk := validateEmail(new.Email, str)
 	if !emailOk {
 		return UserView{}, errors.New("This email already registered")
 	}
-	user, err := db.GetUserByEmail(oldEmail)
-	if err != nil {
-		return UserView{}, err
+	hashed, err := bcrypt.GenerateFromPassword([]byte(new.Password), 4)
+	user := User{}
+	for i, userA := range str.Users {
+		if userA.Email == old.Email {
+			new.Password = string(hashed)
+			new.Id = old.Id
+			userA = new
+
+			str.Users[i] = userA
+			user = userA
+			break
+		}
 	}
-	user.Email = newEmail
 
 	db.writeDB(str)
 	return UserView{
@@ -164,7 +194,19 @@ func (db *DB) GetUserById(id int) (UserView, error) {
 	if !ok {
 		return UserView{}, errors.New("User cannot found")
 	}
-	return UserView{user.Email, user.Id}, err
+	return UserView{user.Email, user.Id}, nil
+}
+func (db *DB) GetUserByIdORIGINAL(id int) (User, error) {
+	db.ensureDB()
+	str, err := db.loadDB()
+	if err != nil {
+		return User{}, err
+	}
+	user, ok := str.Users[id]
+	if !ok {
+		return User{}, errors.New("User cannot found")
+	}
+	return user, nil
 }
 
 // GetChirps returns all chirps in the database
@@ -224,7 +266,7 @@ func (db *DB) ensureDB() error {
 func (db *DB) loadDB() (DBStructure, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
-	dbStructure := DBStructure{Chirps: map[int]Chirp{}, Users: map[int]User{}}
+	dbStructure := DBStructure{Chirps: map[int]Chirp{}, Users: map[int]User{}, RefreshToken: map[string]RefreshToken{}}
 	file, err := os.ReadFile(db.path)
 	if err != nil {
 		return dbStructure, err

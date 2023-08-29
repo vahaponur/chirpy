@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/golang-jwt/jwt/v5"
 	"internal/db"
@@ -17,7 +18,7 @@ func addUser(res http.ResponseWriter, req *http.Request) {
 	param := db.User{}
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
-		res.Write([]byte("Something went wrong"))
+		respondWithError(res, http.StatusBadRequest, err.Error())
 		return
 	}
 	json.Unmarshal(body, &param)
@@ -43,35 +44,38 @@ func loginUser(res http.ResponseWriter, req *http.Request) {
 
 	res.Header().Set("Content-Type", "application/json")
 
-	if err != nil {
-		respondWithError(res, http.StatusBadRequest, err.Error())
-	}
-
 	user, err := Db.LoginUser(param)
 	if err != nil {
 		respondWithError(res, http.StatusUnauthorized, err.Error())
 		return
 	}
 	param.Id = user.Id
-	tokenStr, err := getJWT(param)
-	login := Login{UserView: user, Token: tokenStr}
+	tokenStr, err := getToken(param)
+	if err != nil {
+		respondWithError(res, http.StatusInternalServerError, err.Error())
+	}
+	refreshStr, err := getRefreshToken(param)
+	if err != nil {
+		respondWithError(res, http.StatusInternalServerError, err.Error())
+	}
+
+	login := Login{UserView: user, Token: tokenStr, RefreshToken: refreshStr}
 	respondWithJSON(res, 200, login)
 
 }
 
 type Login struct {
-	UserView db.UserView
-	Token    string `json:"token"`
+	db.UserView
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
-func getJWT(userLogin db.UserLogin) (string, error) {
+func getToken(userLogin db.UserLogin) (string, error) {
 	numDate := time.Now()
-	expiration := numDate.Add(24 * time.Hour)
-	if userLogin.Expires_in_seconds != 0 {
-		expiration = numDate.Add(time.Duration(userLogin.Expires_in_seconds) * time.Second)
-	}
+	expiration := numDate.Add(time.Hour)
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Issuer:    "chirpy",
+		Issuer:    "chirpy_access",
 		Subject:   strconv.Itoa(userLogin.Id),
 		Audience:  nil,
 		ExpiresAt: &jwt.NumericDate{Time: expiration},
@@ -88,35 +92,46 @@ func getJWT(userLogin db.UserLogin) (string, error) {
 	return jwtS, nil
 
 }
+func getRefreshToken(userLogin db.UserLogin) (string, error) {
+	numDate := time.Now()
+	expiration := numDate.Add(24 * 60 * time.Hour)
 
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "chirpy_refresh",
+		Subject:   strconv.Itoa(userLogin.Id),
+		Audience:  nil,
+		ExpiresAt: &jwt.NumericDate{Time: expiration},
+		NotBefore: nil,
+		IssuedAt:  &jwt.NumericDate{Time: numDate},
+		ID:        "",
+	})
+	fmt.Println(userLogin.Id)
+
+	jwtS, err := token.SignedString([]byte(cfg.jwtSecret))
+	if err != nil {
+		return "", err
+	}
+	//Refresh Tokens saved to DB
+	refreshTokenStr, err := Db.CreateRefreshToken(jwtS, expiration)
+	if err != nil {
+		return "", err
+	}
+	return refreshTokenStr.Id, nil
+
+}
 func updateUser(res http.ResponseWriter, req *http.Request) {
 	bearer := req.Header.Get("Authorization")
 	tokenString, _ := strings.CutPrefix(bearer, "Bearer ")
-	fmt.Println(tokenString)
-	type MyCustomClaims struct {
-		Foo string `json:"foo"`
-		jwt.RegisteredClaims
-	}
-	token, err := jwt.ParseWithClaims(tokenString, &MyCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte(cfg.jwtSecret), nil
 
-	})
+	claims, err := getTokenClaims(tokenString)
 	if err != nil {
 		respondWithError(res, http.StatusUnauthorized, err.Error())
 		return
 	}
-	claims, ok := token.Claims.(*MyCustomClaims)
-	if !ok {
-		respondWithError(res, http.StatusUnauthorized, "Sbisioldu")
+	if claims.Issuer == "chirpy-refresh" {
+		respondWithError(res, http.StatusUnauthorized, "Cannot access with a refresh token")
 		return
 	}
-	if !token.Valid {
-		respondWithError(res, http.StatusUnauthorized, "You shall not pass")
-		return
-	}
-	fmt.Println(claims.Foo)
-	fmt.Println(claims.IssuedAt)
-	fmt.Println(claims.RegisteredClaims)
 	userId := claims.Subject
 	if err != nil {
 		respondWithError(res, http.StatusUnauthorized, err.Error())
@@ -128,22 +143,50 @@ func updateUser(res http.ResponseWriter, req *http.Request) {
 		respondWithError(res, http.StatusUnauthorized, err.Error())
 		return
 	}
-	user, err := Db.GetUserById(userIdInt)
+	user, err := Db.GetUserByIdORIGINAL(userIdInt)
 	if err != nil {
-		res.Write([]byte("Something went wrong"))
+		respondWithError(res, http.StatusInternalServerError, err.Error())
 		return
 	}
 	param := db.User{}
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
-		res.Write([]byte("Something went wrong"))
+		respondWithError(res, http.StatusInternalServerError, err.Error())
 		return
 	}
 	json.Unmarshal(body, &param)
-	uw, err := Db.UpdateUser(user.Email, param.Email)
+
+	uw, err := Db.UpdateUser(user, param)
 	if err != nil {
 		respondWithError(res, http.StatusInternalServerError, err.Error())
 		return
 	}
+
 	respondWithJSON(res, 200, uw)
+}
+
+type MyCustomClaims struct {
+	Foo string `json:"foo"`
+	jwt.RegisteredClaims
+}
+
+func getTokenClaims(tokenString string) (*MyCustomClaims, error) {
+
+	token, err := jwt.ParseWithClaims(tokenString, &MyCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(cfg.jwtSecret), nil
+
+	})
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(*MyCustomClaims)
+	if !ok {
+
+		return nil, errors.New("Claims cannot be redeemed")
+	}
+	if !token.Valid {
+
+		return nil, errors.New("Token is invalid")
+	}
+	return claims, nil
 }
