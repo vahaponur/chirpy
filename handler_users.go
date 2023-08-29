@@ -75,7 +75,7 @@ func getToken(userLogin db.UserLogin) (string, error) {
 	expiration := numDate.Add(time.Hour)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Issuer:    "chirpy_access",
+		Issuer:    "chirpy-access",
 		Subject:   strconv.Itoa(userLogin.Id),
 		Audience:  nil,
 		ExpiresAt: &jwt.NumericDate{Time: expiration},
@@ -97,7 +97,7 @@ func getRefreshToken(userLogin db.UserLogin) (string, error) {
 	expiration := numDate.Add(24 * 60 * time.Hour)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Issuer:    "chirpy_refresh",
+		Issuer:    "chirpy-refresh",
 		Subject:   strconv.Itoa(userLogin.Id),
 		Audience:  nil,
 		ExpiresAt: &jwt.NumericDate{Time: expiration},
@@ -165,21 +165,20 @@ func updateUser(res http.ResponseWriter, req *http.Request) {
 	respondWithJSON(res, 200, uw)
 }
 
-type MyCustomClaims struct {
-	Foo string `json:"foo"`
+type CustomClaims struct {
 	jwt.RegisteredClaims
 }
 
-func getTokenClaims(tokenString string) (*MyCustomClaims, error) {
+func getTokenClaims(tokenString string) (*CustomClaims, error) {
 
-	token, err := jwt.ParseWithClaims(tokenString, &MyCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(cfg.jwtSecret), nil
 
 	})
 	if err != nil {
 		return nil, err
 	}
-	claims, ok := token.Claims.(*MyCustomClaims)
+	claims, ok := token.Claims.(*CustomClaims)
 	if !ok {
 
 		return nil, errors.New("Claims cannot be redeemed")

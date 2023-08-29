@@ -15,8 +15,7 @@
 *.iml
 _test
 _test.go
-
-
+bin/
 database.json
 
 # OS-specific files
