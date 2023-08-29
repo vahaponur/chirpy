@@ -16,14 +16,17 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/joho/godotenv"
 )
 
 type apiConfig struct {
 	fileServerHit int
+	jwtSecret     string
 }
 
 var Db *db.DB
 var DbStructure *db.DBStructure
+var cfg *apiConfig
 
 func (cfg *apiConfig) incMetrics(next http.Handler) http.Handler {
 
@@ -56,7 +59,7 @@ func CreateDb() {
 var debugMode *bool
 
 func getMainRouter() *chi.Mux {
-	cfg := apiConfig{fileServerHit: 0}
+	cfg = &apiConfig{fileServerHit: 0, jwtSecret: os.Getenv("JWT_SECRET")}
 	apiRooter := chi.NewRouter()
 	apiRooter.Get("/healthz", healthzHandler)
 	apiRooter.Post("/chirps", addChirp)
@@ -64,6 +67,7 @@ func getMainRouter() *chi.Mux {
 	apiRooter.Get("/chirps/{id}", getChirpById)
 	apiRooter.Post("/users", addUser)
 	apiRooter.Post("/login", loginUser)
+	apiRooter.Put("/users", updateUser)
 	adminRooter := chi.NewRouter()
 	adminRooter.Get("/metrics", cfg.metrics)
 	r := chi.NewRouter()
@@ -77,7 +81,7 @@ func getMainRouter() *chi.Mux {
 }
 func main() {
 	debugMode = flag.Bool("debug", false, "Enable debug mode")
-
+	godotenv.Load()
 	defer cleanup()
 
 	CreateDb()

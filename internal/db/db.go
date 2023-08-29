@@ -26,6 +26,10 @@ type UserView struct {
 	Email string `json:"email"`
 	Id    int    `json:"id"`
 }
+type UserLogin struct {
+	User
+	Expires_in_seconds int `json:"expires_in_seconds"`
+}
 type DB struct {
 	path string
 	mu   *sync.RWMutex
@@ -98,20 +102,46 @@ func (db *DB) CreateUser(email, password string) (UserView, error) {
 	return UserView{Email: user.Email, Id: user.Id}, nil
 
 }
-func (db *DB) GetUserByEmail(email string) (User, error) {
+func (db *DB) GetUserByEmail(email string) (*User, error) {
 	db.ensureDB()
 	str, err := db.loadDB()
 	if err != nil {
-		return User{}, err
+		return &User{}, err
 	}
 	for _, value := range str.Users {
 		if value.Email == email {
-			return value, nil
+			return &value, nil
 		}
 	}
-	return User{}, errors.New("User not found")
+	return &User{}, errors.New("User not found")
 }
-func (db *DB) LoginUser(email, password string) (UserView, error) {
+func (db *DB) UpdateUser(oldEmail string, newEmail string) (UserView, error) {
+	db.ensureDB()
+	str, err := db.loadDB()
+	if err != nil {
+		return UserView{}, err
+	}
+	emailOk := validateEmail(newEmail, str)
+	if !emailOk {
+		return UserView{}, errors.New("This email already registered")
+	}
+	user, err := db.GetUserByEmail(oldEmail)
+	if err != nil {
+		return UserView{}, err
+	}
+	user.Email = newEmail
+
+	db.writeDB(str)
+	return UserView{
+		Id:    user.Id,
+		Email: user.Email,
+	}, nil
+
+}
+func (db *DB) LoginUser(userLogin UserLogin) (UserView, error) {
+	email := userLogin.Email
+	password := userLogin.Password
+	fmt.Println(userLogin.Expires_in_seconds)
 	db.ensureDB()
 	user, err := db.GetUserByEmail(email)
 	if err != nil {
@@ -123,6 +153,18 @@ func (db *DB) LoginUser(email, password string) (UserView, error) {
 	}
 	return UserView{Email: user.Email, Id: user.Id}, nil
 
+}
+func (db *DB) GetUserById(id int) (UserView, error) {
+	db.ensureDB()
+	str, err := db.loadDB()
+	if err != nil {
+		return UserView{}, err
+	}
+	user, ok := str.Users[id]
+	if !ok {
+		return UserView{}, errors.New("User cannot found")
+	}
+	return UserView{user.Email, user.Id}, err
 }
 
 // GetChirps returns all chirps in the database
