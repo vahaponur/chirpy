@@ -8,12 +8,12 @@ import (
 
 type User struct {
 	Email    string `json:"email"`
-	Id       int    `json:"Id"`
+	Id       int    `json:"id"`
 	Password string `json:"password"`
 }
 type UserView struct {
 	Email string `json:"email"`
-	Id    int    `json:"Id"`
+	Id    int    `json:"id"`
 }
 type UserLogin struct {
 	User
@@ -80,6 +80,7 @@ func (db *DB) UpdateUser(old User, new User) (UserView, error) {
 	}
 	hashed, err := bcrypt.GenerateFromPassword([]byte(new.Password), 4)
 	user := User{}
+
 	for i, userA := range str.Users {
 		if userA.Email == old.Email {
 			new.Password = string(hashed)

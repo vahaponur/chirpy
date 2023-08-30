@@ -8,14 +8,15 @@ import (
 )
 
 type Chirp struct {
-	Body string `json:"body"`
-	Id   int    `json:"Id"`
+	Body      string `json:"body"`
+	Id        int    `json:"id"`
+	Author_Id int    `json:"author_id"`
 }
 
-func (db *DB) CreateChirp(body string) (Chirp, error) {
+func (db *DB) CreateChirp(newChirp Chirp) (Chirp, error) {
 	db.ensureDB()
 	str, err := db.loadDB()
-	chirp := Chirp{Body: body}
+	chirp := Chirp{Body: newChirp.Body, Author_Id: newChirp.Author_Id}
 	if err != nil {
 		return chirp, err
 	}
@@ -61,4 +62,19 @@ func (db *DB) GetChirpById(id string) (Chirp, error) {
 	}
 	return chirp, nil
 
+}
+func (db *DB) DeleteChirpById(id string) error {
+	db.ensureDB()
+	str, err := db.loadDB()
+	if err != nil {
+		return err
+	}
+	chirp, err := db.GetChirpById(id)
+	if err != nil {
+		return err
+	}
+
+	delete(str.Chirps, chirp.Id)
+	db.writeDB(str)
+	return nil
 }

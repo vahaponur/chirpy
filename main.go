@@ -65,9 +65,13 @@ func getMainRouter() *chi.Mux {
 	apiRooter.Post("/chirps", addChirp)
 	apiRooter.Get("/chirps", getChirps)
 	apiRooter.Get("/chirps/{id}", getChirpById)
+	apiRooter.Delete("/chirps/{id}", deleteChirpById)
 	apiRooter.Post("/users", addUser)
 	apiRooter.Post("/login", loginUser)
 	apiRooter.Put("/users", updateUser)
+	apiRooter.Post("/refresh", updateAccessToken)
+	apiRooter.Post("/revoke", revokeRefreshToken)
+
 	adminRooter := chi.NewRouter()
 	adminRooter.Get("/metrics", cfg.metrics)
 	r := chi.NewRouter()
@@ -144,7 +148,7 @@ func healthzHandler(res http.ResponseWriter, req *http.Request) {
 
 }
 
-func respondWithError(w http.ResponseWriter, code int, msg string) {
+func respondWithError(w http.ResponseWriter, code int, msg interface{}) {
 	w.WriteHeader(code)
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -152,6 +156,7 @@ func respondWithError(w http.ResponseWriter, code int, msg string) {
 	}
 	w.Write(data)
 }
+
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 
 	w.WriteHeader(code)

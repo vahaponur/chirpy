@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
-	"time"
 )
 
 // This is a file db, it just creates a json if it does not exist and writes given models on it,
@@ -18,11 +17,6 @@ type DBStructure struct {
 	Users        map[int]User
 	RefreshToken map[string]RefreshToken
 }
-type RefreshToken struct {
-	Id         string
-	Revoked    bool
-	RevokeTime time.Time
-}
 
 func NewDB(path string) (*DB, error) {
 	db := DB{path: path, mu: &sync.RWMutex{}}
@@ -32,21 +26,6 @@ func NewDB(path string) (*DB, error) {
 	}
 
 	return &db, err
-}
-func (db *DB) CreateRefreshToken(refreshStr string, expiration time.Time) (RefreshToken, error) {
-	db.ensureDB()
-	str, err := db.loadDB()
-	refresh := RefreshToken{}
-	if err != nil {
-		return refresh, err
-	}
-	refresh.Id = refreshStr
-	refresh.Revoked = false
-	refresh.RevokeTime = expiration
-
-	str.RefreshToken[refreshStr] = refresh
-	db.writeDB(str)
-	return refresh, nil
 }
 
 // CreateChirp creates a new chirp and saves it to disk
