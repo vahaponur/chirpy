@@ -7,7 +7,23 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
+
+type CustomClaims struct {
+	jwt.RegisteredClaims
+}
+type Login struct {
+	db.UserView
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
+}
+type PolkaRequest struct {
+	Event string `json:"event"`
+	Data  struct {
+		UserID int `json:"user_id"`
+	} `json:"data"`
+}
 
 func addUser(res http.ResponseWriter, req *http.Request) {
 
@@ -59,13 +75,6 @@ func loginUser(res http.ResponseWriter, req *http.Request) {
 	respondWithJSON(res, 200, login)
 
 }
-
-type Login struct {
-	db.UserView
-	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
-}
-
 func updateUser(res http.ResponseWriter, req *http.Request) {
 	tokenString, err := getCleanTokenStr(req)
 	if err != nil {
@@ -113,7 +122,33 @@ func updateUser(res http.ResponseWriter, req *http.Request) {
 
 	respondWithJSON(res, 200, uw)
 }
+func upgradeUser(res http.ResponseWriter, req *http.Request) {
+	body, err := io.ReadAll(req.Body)
+	apikey := req.Header.Get("Authorization")
+	apiCutted, ok := strings.CutPrefix(apikey, "ApiKey ")
+	if !ok {
+		respondWithError(res, http.StatusUnauthorized, "")
+		return
+	}
+	if apiCutted != cfg.polkaKey {
+		respondWithError(res, http.StatusUnauthorized, "")
+		return
+	}
+	if err != nil {
+		respondWithError(res, http.StatusInternalServerError, err.Error())
+		return
+	}
+	polka := PolkaRequest{}
+	json.Unmarshal(body, &polka)
+	if polka.Event != "user.upgraded" {
+		res.WriteHeader(200)
+		return
+	}
+	err = Db.UpgradeUser(polka.Data.UserID)
+	if err != nil {
+		respondWithError(res, http.StatusNotFound, err.Error())
+		return
+	}
+	respondWithJSON(res, http.StatusOK, "")
 
-type CustomClaims struct {
-	jwt.RegisteredClaims
 }

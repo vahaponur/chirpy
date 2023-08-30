@@ -22,6 +22,7 @@ import (
 type apiConfig struct {
 	fileServerHit int
 	jwtSecret     string
+	polkaKey      string
 }
 
 var Db *db.DB
@@ -59,7 +60,7 @@ func CreateDb() {
 var debugMode *bool
 
 func getMainRouter() *chi.Mux {
-	cfg = &apiConfig{fileServerHit: 0, jwtSecret: os.Getenv("JWT_SECRET")}
+	cfg = &apiConfig{fileServerHit: 0, jwtSecret: os.Getenv("JWT_SECRET"), polkaKey: os.Getenv("POLKA_KEY")}
 	apiRooter := chi.NewRouter()
 	apiRooter.Get("/healthz", healthzHandler)
 	apiRooter.Post("/chirps", addChirp)
@@ -71,7 +72,7 @@ func getMainRouter() *chi.Mux {
 	apiRooter.Put("/users", updateUser)
 	apiRooter.Post("/refresh", updateAccessToken)
 	apiRooter.Post("/revoke", revokeRefreshToken)
-
+	apiRooter.Post("/polka/webhooks", upgradeUser)
 	adminRooter := chi.NewRouter()
 	adminRooter.Get("/metrics", cfg.metrics)
 	r := chi.NewRouter()

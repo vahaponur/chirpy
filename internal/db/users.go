@@ -7,19 +7,27 @@ import (
 )
 
 type User struct {
-	Email    string `json:"email"`
-	Id       int    `json:"id"`
-	Password string `json:"password"`
+	Email       string `json:"email"`
+	Id          int    `json:"id"`
+	Password    string `json:"password"`
+	IsChirpyRed bool   `json:"is_chirpy_red"`
 }
 type UserView struct {
-	Email string `json:"email"`
-	Id    int    `json:"id"`
+	Email       string `json:"email"`
+	Id          int    `json:"id"`
+	IsChirpyRed bool   `json:"is_chirpy_red"`
 }
 type UserLogin struct {
 	User
 	Expires_in_seconds int `json:"expires_in_seconds"`
 }
 
+func UserToView(user User) (view UserView) {
+	view.Id = user.Id
+	view.IsChirpyRed = user.IsChirpyRed
+	view.Email = user.Email
+	return
+}
 func validateEmail(email string, str DBStructure) bool {
 	users := str.Users
 	for _, val := range users {
@@ -52,7 +60,7 @@ func (db *DB) CreateUser(email, password string) (UserView, error) {
 		return UserView{}, err
 	}
 
-	return UserView{Email: user.Email, Id: user.Id}, nil
+	return UserToView(user), nil
 
 }
 func (db *DB) GetUserByEmail(email string) (*User, error) {
@@ -94,10 +102,7 @@ func (db *DB) UpdateUser(old User, new User) (UserView, error) {
 	}
 
 	db.writeDB(str)
-	return UserView{
-		Id:    user.Id,
-		Email: user.Email,
-	}, nil
+	return UserToView(user), nil
 
 }
 func (db *DB) LoginUser(userLogin UserLogin) (UserView, error) {
@@ -113,7 +118,7 @@ func (db *DB) LoginUser(userLogin UserLogin) (UserView, error) {
 	if compareErr != nil {
 		return UserView{}, errors.New("Login failed")
 	}
-	return UserView{Email: user.Email, Id: user.Id}, nil
+	return UserToView(*user), nil
 
 }
 func (db *DB) GetUserById(id int) (UserView, error) {
@@ -126,7 +131,7 @@ func (db *DB) GetUserById(id int) (UserView, error) {
 	if !ok {
 		return UserView{}, errors.New("User cannot found")
 	}
-	return UserView{user.Email, user.Id}, nil
+	return UserToView(user), nil
 }
 func (db *DB) GetUserByIdORIGINAL(id int) (User, error) {
 	db.ensureDB()
@@ -139,4 +144,20 @@ func (db *DB) GetUserByIdORIGINAL(id int) (User, error) {
 		return User{}, errors.New("User cannot found")
 	}
 	return user, nil
+}
+func (db *DB) UpgradeUser(userId int) error {
+
+	db.ensureDB()
+	str, err := db.loadDB()
+	if err != nil {
+		return err
+	}
+	user, ok := str.Users[userId]
+	if !ok {
+		return errors.New("User could not found")
+	}
+	user.IsChirpyRed = true
+	str.Users[userId] = user
+	db.writeDB(str)
+	return nil
 }
