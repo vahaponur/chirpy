@@ -82,16 +82,34 @@ func addChirp(res http.ResponseWriter, req *http.Request) {
 
 }
 func getChirps(res http.ResponseWriter, req *http.Request) {
-	chirps, err := Db.GetChirpValues()
-	if err != nil {
-		respondWithError(res, 400, err.Error())
+	author := req.URL.Query().Get("author_id")
+	sort := req.URL.Query().Get("sort")
+
+	if author != "" {
+		author_id, err := strconv.Atoi(author)
+		if err != nil {
+			respondWithError(res, http.StatusBadRequest, err)
+			return
+		}
+		chirps, err := Db.GetAuthorChirps(author_id, sort)
+		if err != nil {
+			respondWithError(res, http.StatusBadRequest, err)
+			return
+		}
+		respondWithJSON(res, http.StatusOK, chirps)
 		return
 	}
-	respondWithJSON(res, 200, chirps)
+	chirps, err := Db.GetChirpValues(sort)
+	if err != nil {
+		respondWithError(res, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondWithJSON(res, http.StatusOK, chirps)
 }
 func getChirpById(res http.ResponseWriter, req *http.Request) {
 	param := chi.URLParam(req, "id")
-	chirp, err := Db.GetChirpById(param)
+	id, err := strconv.Atoi(param)
+	chirp, err := Db.GetChirpById(id)
 	if err != nil {
 		respondWithError(res, 404, err.Error())
 		return
@@ -100,6 +118,11 @@ func getChirpById(res http.ResponseWriter, req *http.Request) {
 }
 func deleteChirpById(res http.ResponseWriter, req *http.Request) {
 	param := chi.URLParam(req, "id")
+	id, err := strconv.Atoi(param)
+	if err != nil {
+		respondWithError(res, http.StatusBadRequest, "Invalid ID parameter")
+		return
+	}
 	token, err := getCleanTokenStr(req)
 	if err != nil {
 		respondWithError(res, http.StatusForbidden, err.Error())
@@ -119,7 +142,8 @@ func deleteChirpById(res http.ResponseWriter, req *http.Request) {
 		respondWithError(res, http.StatusForbidden, err.Error())
 		return
 	}
-	chirpToDelete, err := Db.GetChirpById(param)
+
+	chirpToDelete, err := Db.GetChirpById(id)
 	if err != nil {
 		respondWithError(res, http.StatusForbidden, err.Error())
 		return
@@ -128,12 +152,12 @@ func deleteChirpById(res http.ResponseWriter, req *http.Request) {
 		respondWithError(res, http.StatusForbidden, "CANNOT DELETE ANOTHER PERSONS CHIRP")
 		return
 	}
-	idStr := strconv.Itoa(chirpToDelete.Id)
-	err = Db.DeleteChirpById(idStr)
+
+	err = Db.DeleteChirpById(chirpToDelete.Id)
 	if err != nil {
 		respondWithError(res, http.StatusForbidden, "Something went wrong")
 		return
 	}
-	respondWithJSON(res, http.StatusOK, "")
+	respondWithJSON(res, http.StatusNoContent, "")
 
 }

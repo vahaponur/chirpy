@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
 )
 
 type Chirp struct {
@@ -32,38 +31,40 @@ func (db *DB) CreateChirp(newChirp Chirp) (Chirp, error) {
 }
 
 // GetChirps returns all chirps in the database
-func (db *DB) GetChirpValues() ([]Chirp, error) {
+func (db *DB) GetChirpValues(sortOpt string) ([]Chirp, error) {
 	db.ensureDB()
 	str, err := db.loadDB()
 	if err != nil {
 		return nil, err
 	}
 
-	chirpValues := make([]Chirp, 0, len(str.Chirps))
+	chirps := make([]Chirp, 0, len(str.Chirps))
 	for _, chirp := range str.Chirps {
-		chirpValues = append(chirpValues, chirp)
+		chirps = append(chirps, chirp)
 	}
-	sort.Slice(chirpValues, func(i, j int) bool { return chirpValues[i].Id < chirpValues[j].Id })
-	return chirpValues, nil
+	if sortOpt != "desc" {
+		sortByAsc(chirps)
+	} else {
+		sortByDesc(chirps)
+	}
+
+	return chirps, nil
 }
-func (db *DB) GetChirpById(id string) (Chirp, error) {
+func (db *DB) GetChirpById(id int) (Chirp, error) {
 	db.ensureDB()
-	idInt, err := strconv.Atoi(id)
-	if err != nil {
-		return Chirp{}, err
-	}
+
 	str, err := db.loadDB()
 	if err != nil {
 		return Chirp{}, err
 	}
-	chirp, ok := str.Chirps[idInt]
+	chirp, ok := str.Chirps[id]
 	if !ok {
-		return Chirp{}, errors.New(fmt.Sprintf("Could not find a chirp with ID: %v", idInt))
+		return Chirp{}, errors.New(fmt.Sprintf("Could not find a chirp with ID: %v", id))
 	}
 	return chirp, nil
 
 }
-func (db *DB) DeleteChirpById(id string) error {
+func (db *DB) DeleteChirpById(id int) error {
 	db.ensureDB()
 	str, err := db.loadDB()
 	if err != nil {
@@ -77,4 +78,34 @@ func (db *DB) DeleteChirpById(id string) error {
 	delete(str.Chirps, chirp.Id)
 	db.writeDB(str)
 	return nil
+}
+func (db *DB) GetAuthorChirps(authorId int, sortOpt string) ([]Chirp, error) {
+	db.ensureDB()
+	str, err := db.loadDB()
+	if err != nil {
+		return nil, err
+	}
+	chirps := make([]Chirp, 0, 0)
+	for _, chirp := range str.Chirps {
+		if chirp.Author_Id == authorId {
+			chirps = append(chirps, chirp)
+		}
+	}
+	if sortOpt != "desc" {
+		sortByAsc(chirps)
+	} else {
+		sortByDesc(chirps)
+	}
+
+	return chirps, nil
+}
+func sortByAsc(chirps []Chirp) {
+	sort.Slice(chirps, func(i, j int) bool {
+		return chirps[i].Id < chirps[j].Id
+	})
+}
+func sortByDesc(chirps []Chirp) {
+	sort.Slice(chirps, func(i, j int) bool {
+		return chirps[i].Id > chirps[j].Id
+	})
 }
