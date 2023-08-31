@@ -99,7 +99,7 @@ Delete a specific chirp by ID.
 
 **Request:**
 - Method: `DELETE`
-- Headers: None
+- Headers: Authentication token in the `Authorization` header
 - Path Parameters: `id` (Chirp ID)
 
 **Response:**
